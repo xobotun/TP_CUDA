@@ -5,6 +5,9 @@
 *.cubin
 *.fatbin
 
+*.VC.db
+*.VC.opendb
+
 #################
 ## Eclipse
 #################
