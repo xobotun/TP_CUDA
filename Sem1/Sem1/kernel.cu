@@ -29,53 +29,61 @@ static const float ERR_LIMIT = 0.001;
 static const float TEMP_PER_SEC = 5.;
 static const float DX = (CYL_LENGTH * 1.) / (STEPS_PER_METER * 1.0);
 static const float DT = (SIM_TIME * 1.) / (STEPS_PER_SECOND * 1.0);
-static __constant__ float gpuCoefficients[WORK_SIZE * WORK_SIZE];
+static /*__device__*/ __constant__ float gpuCoefficients[WORK_SIZE * WORK_SIZE];
 static float hostCoefficients[WORK_SIZE * WORK_SIZE];
 const int blockCount = (WORK_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
 
-__device__ int sumMultiplies(float* constants, int size, float guess) {
+__device__ int sumMultiplies(int size, float guess) {
 	unsigned idx = blockIdx.x*blockDim.x + threadIdx.x;
-
 	float result = 0;
-	for (int i = 0; i < size; ++i) {
-		result += constants[idx*size + i] * guess;
-	}
+	if (idx < size - 1) {
+		for (int i = 0; i < size; ++i) {
+			result += gpuCoefficients[idx*size + i] * guess;
+		}
 
+	}
 	return result;
 }
 
-__device__ void iterateHeat(float *data, float* constants, unsigned size, float errLimit) {
+__device__ void iterateHeat(float *data, unsigned size, float errLimit) {
 	unsigned idx = blockIdx.x*blockDim.x + threadIdx.x;
 
-	//if (idx < size - 1) {
+	if (idx < size - 1) {
 		float sumError = errLimit + 1;
 		float prevIteration = data[idx];
-		const float someCoeff = 1 / constants[idx*size + idx];
-		extern __shared__ float errors[];
+		const float someCoeff = 1 / gpuCoefficients[idx*size + idx];
+		/*extern __shared__*/ float* errors = new float[size];
+		int iterationCount = 0;
 
-		while (sumError > errLimit) {
-			float newIteration = someCoeff * (data[idx] - sumMultiplies(constants, size, newIteration));
+		while (sumError > errLimit || iterationCount > WORK_SIZE) {
+			float newIteration = someCoeff * (data[idx] - sumMultiplies(size, prevIteration));
 
 			errors[idx] = fabs(prevIteration - newIteration);
-			__syncthreads();
+			prevIteration = newIteration;
+			iterationCount++;
 
-			if (idx == 0)
+			//if (idx == 0)
 				for (int i = 0, sumError = 0; i < size; ++i)
 					sumError += errors[i];
+
+			__syncthreads();
 		}
-	//}
+
+		delete[] errors;
+	}
 }
 
 /**
  * CUDA kernel that computes reciprocal values for a given vector
  */
-__global__  void heatKernel(float *data, float* constants, unsigned size, unsigned iterations, float tempPerIteration, float errLimit) {
+__global__  void heatKernel(float *data, unsigned size, unsigned iterations, float tempPerIteration, float errLimit) {
 	unsigned idx = blockIdx.x*blockDim.x+threadIdx.x;
 	if (idx < size - 1)
 		for (int time = 0; time < iterations - 1; ++time) {
 			
-			iterateHeat(data, constants, size, errLimit);
+			//float temp = data[0];
+			iterateHeat(data, size, errLimit);
 		
 			__syncthreads();
 			if (idx == 0) {
@@ -124,13 +132,14 @@ int main(void) {
 	initializeCoefficients(hostCoefficients, WORK_SIZE, DT, DX);
 
 	CUDA_CHECK_RETURN(cudaMalloc((void **)&gpuData, sizeof(float)*(WORK_SIZE)));
-	CUDA_CHECK_RETURN(cudaMalloc((void **)&gpuCoefficients, sizeof(float)*(WORK_SIZE*WORK_SIZE)));
+	//CUDA_CHECK_RETURN(cudaMalloc((void **)&gpuCoefficients, sizeof(float)*(WORK_SIZE*WORK_SIZE)));
 	CUDA_CHECK_RETURN(cudaMemcpy(gpuData, hostData, sizeof(float)*(WORK_SIZE), cudaMemcpyHostToDevice));
 	CUDA_CHECK_RETURN(cudaMemcpyToSymbol(gpuCoefficients, hostCoefficients, sizeof(hostCoefficients)));
 
 	float *result = new float[WORK_SIZE];
 
-	heatKernel <<<blockCount, BLOCK_SIZE >>> (gpuData, gpuCoefficients, WORK_SIZE, SIM_TIME * STEPS_PER_SECOND, TEMP_PER_SEC / (STEPS_PER_SECOND*1.0f), ERR_LIMIT);
+	heatKernel <<<blockCount, BLOCK_SIZE >>> (gpuData, WORK_SIZE, SIM_TIME * STEPS_PER_SECOND, TEMP_PER_SEC / (STEPS_PER_SECOND*1.0f), ERR_LIMIT);
+	CUDA_CHECK_RETURN(cudaPeekAtLastError());
 
 	CUDA_CHECK_RETURN(cudaMemcpy(result, gpuData, sizeof(float)*(WORK_SIZE), cudaMemcpyDeviceToHost));
 
