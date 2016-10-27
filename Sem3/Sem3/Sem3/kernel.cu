@@ -9,7 +9,6 @@
 
 static void CheckCudaErrorAux(const char *, unsigned, const char *, cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
-typedef unsigned char (*ConvolutionFunction)(unsigned char*, int, int, int, int);
 
 __device__ __host__ unsigned char smoothe(unsigned char* pixels, int imgWidth, int imgHeight, int pixelPosX, int pixelPosY) {
 	const unsigned char gaussMatrixSize = 5;
@@ -22,14 +21,14 @@ __device__ __host__ unsigned char smoothe(unsigned char* pixels, int imgWidth, i
 	int normalizer = 0;
 	int nonNormalizedResult = 0;
 
-	for (int dy = 0; dy <= gaussMatrixSize; ++dy)
-		for (int dx = 0; dx <= gaussMatrixSize; ++dx) {
+	for (int dy = 0; dy < gaussMatrixSize; ++dy)
+		for (int dx = 0; dx < gaussMatrixSize; ++dx) {
 			int x = pixelPosX + dx - gaussMatrixSize/2;
 			int y = pixelPosY + dy - gaussMatrixSize/2;
 
-			if (x > 0 && y > 0 && x < imgWidth && y < imgHeight) {
-				nonNormalizedResult += pixels[y*imgWidth + x] * gaussMatrix[(gaussMatrixSize*gaussMatrixSize -1) - y*imgWidth - x];
-				normalizer += gaussMatrix[(gaussMatrixSize*gaussMatrixSize -1) - y*imgWidth - x];
+			if (x >= 0 && y >= 0 && x < imgWidth && y < imgHeight) {
+				nonNormalizedResult += pixels[y*imgWidth + x] * gaussMatrix[(gaussMatrixSize*gaussMatrixSize -1) - dy*gaussMatrixSize - dx];
+				normalizer += gaussMatrix[(gaussMatrixSize*gaussMatrixSize -1) - dy*gaussMatrixSize - dx];
 			}
 		}
 
@@ -45,26 +44,26 @@ __device__ __host__ unsigned char findBorders(unsigned char* pixels, int imgWidt
 	const char verticalEdgeDetectionMatrix[] =    { -1, -2, -1,
 													-0,  0,  0,
 													-1, -2, -1 };
-	const unsigned char minThreshold = 100;
-	const unsigned char maxThreshold = 200;
+	const unsigned char minThreshold = 205;	// OpenCV says thresholds should be 1:3 or 1:2
+	const unsigned char maxThreshold = 255;
 
 	int resultX = 0;
 	int resultY = 0;
 
-	for (int dy = 0; dy <= edgeDetectionMatrixSize; ++dy)
-		for (int dx = 0; dx <= edgeDetectionMatrixSize; ++dx) {
+	for (int dy = 0; dy < edgeDetectionMatrixSize; ++dy)
+		for (int dx = 0; dx < edgeDetectionMatrixSize; ++dx) {
 			int x = pixelPosX + dx - edgeDetectionMatrixSize/2;
 			int y = pixelPosY + dy - edgeDetectionMatrixSize/2;
 
-			if (x > 0 && y > 0 && x < imgWidth && y < imgHeight) {
-				resultX += pixels[y*imgWidth + x] * horizontalEdgeDetectionMatrix[(edgeDetectionMatrixSize*edgeDetectionMatrixSize - 1) - y*imgWidth - x];
-				resultY += pixels[y*imgWidth + x] * verticalEdgeDetectionMatrix[(edgeDetectionMatrixSize*edgeDetectionMatrixSize - 1) - y*imgWidth - x];
+			if (x >= 0 && y >= 0 && x < imgWidth && y < imgHeight) {
+				resultX += pixels[y*imgWidth + x] * horizontalEdgeDetectionMatrix[(edgeDetectionMatrixSize*edgeDetectionMatrixSize - 1) - dy*edgeDetectionMatrixSize - dx];
+				resultY += pixels[y*imgWidth + x] * verticalEdgeDetectionMatrix[(edgeDetectionMatrixSize*edgeDetectionMatrixSize - 1) - dy*edgeDetectionMatrixSize - dx];
 			}
 		}
 
-	int result = roundf(sqrtf(resultX*resultX + resultY*resultY));
+	unsigned char result = ((unsigned int)roundf(sqrtf(resultX*resultX + resultY*resultY))) % UCHAR_MAX;
 
-	if (false && result > minThreshold && result < maxThreshold)
+	if (result < minThreshold || result > maxThreshold)
 		result = 0;
 
 	return result;
@@ -132,12 +131,26 @@ int main(void) {
 	int width, height;
 
 	readImage(pixels, width, height, "img.jpg");
+	writeImage(pixels, width, height, "img_original.txt");
+	
 
-	// CUDA here.
+	unsigned char* smoothedPixels = new unsigned char[width * height];
+	for (int i = 0; i < width * height; ++i)
+		smoothedPixels[i] = smoothe(pixels, width, height, i % width, i / width);
 
-	writeImage(pixels, width, height, "img.txt");
+	writeImage(smoothedPixels, width, height, "img_smoothed.txt");
+
+
+	unsigned char* edgedPixels = new unsigned char[width * height];
+	for (int i = 0; i < width * height; ++i)
+		edgedPixels[i] = findBorders(smoothedPixels, width, height, i % width, i / width);
+
+	writeImage(edgedPixels, width, height, "img_edged.txt");
+
 
 	delete[] pixels;
+	delete[] smoothedPixels;
+	delete[] edgedPixels;
 }
 
 /**
