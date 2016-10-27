@@ -129,12 +129,22 @@ void writeImage(unsigned char* pixels, int width, int height, std::string filena
 	image.close();
 }
 
-__global__ void runConvolutionGPU(unsigned char* in, unsigned char* out, int imgWidth, int imgHeight, ConvolutionFunction action) {
+__global__ void smootheGPU(unsigned char* in, unsigned char* out, int imgWidth, int imgHeight) {
 	int idx = blockDim.x*blockIdx.x + threadIdx.x;
 
 	int pixelID = idx;
 	while (pixelID < imgWidth*imgHeight) {
-		out[pixelID] = (*action)(in, imgWidth, imgHeight, pixelID % imgWidth, pixelID / imgWidth);
+		out[pixelID] = smoothe(in, imgWidth, imgHeight, pixelID % imgWidth, pixelID / imgWidth);
+		pixelID += gridDim.x * blockDim.x;
+	}
+}
+
+__global__ void findBordersGPU(unsigned char* in, unsigned char* out, int imgWidth, int imgHeight) {
+	int idx = blockDim.x*blockIdx.x + threadIdx.x;
+
+	int pixelID = idx;
+	while (pixelID < imgWidth*imgHeight) {
+		out[pixelID] = findBorders(in, imgWidth, imgHeight, pixelID % imgWidth, pixelID / imgWidth);
 		pixelID += gridDim.x * blockDim.x;
 	}
 }
@@ -157,9 +167,9 @@ int main(void) {
 	unsigned char* gpuEdgedPixels;
 	CUDA_CHECK_RETURN(cudaMalloc((void**)&gpuEdgedPixels, width*height*sizeof(unsigned char)));
 
-	runConvolutionGPU <<<numberOfGPUBlocks, THREADS_PER_BLOCK>>> (gpuPixels, gpuSmoothedPixels, width, height, &smoothe);
+	smootheGPU <<<numberOfGPUBlocks, THREADS_PER_BLOCK>>> (gpuPixels, gpuSmoothedPixels, width, height);
 	CUDA_CHECK_RETURN(cudaPeekAtLastError());
-	runConvolutionGPU <<<numberOfGPUBlocks, THREADS_PER_BLOCK >>> (gpuSmoothedPixels, gpuEdgedPixels, width, height, &findBorders);
+	findBordersGPU <<<numberOfGPUBlocks, THREADS_PER_BLOCK >>> (gpuSmoothedPixels, gpuEdgedPixels, width, height);
 	CUDA_CHECK_RETURN(cudaPeekAtLastError());
 	
 	unsigned char* edgedPixels = new unsigned char[width*height];
