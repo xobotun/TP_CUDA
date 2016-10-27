@@ -9,6 +9,9 @@
 
 static void CheckCudaErrorAux(const char *, unsigned, const char *, cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
+typedef unsigned char(*ConvolutionFunction)(unsigned char*, int, int, int, int);
+
+static const int THREADS_PER_BLOCK = 256;
 
 __device__ __host__ unsigned char smoothe(unsigned char* pixels, int imgWidth, int imgHeight, int pixelPosX, int pixelPosY) {
 	const unsigned char gaussMatrixSize = 5;
@@ -126,31 +129,49 @@ void writeImage(unsigned char* pixels, int width, int height, std::string filena
 	image.close();
 }
 
+__global__ void runConvolutionGPU(unsigned char* in, unsigned char* out, int imgWidth, int imgHeight, ConvolutionFunction action) {
+	int idx = blockDim.x*blockIdx.x + threadIdx.x;
+
+	int pixelID = idx;
+	while (pixelID < imgWidth*imgHeight) {
+		out[pixelID] = (*action)(in, imgWidth, imgHeight, pixelID % imgWidth, pixelID / imgWidth);
+		pixelID += gridDim.x * blockDim.x;
+	}
+}
+
+
 int main(void) {
 	unsigned char* pixels;
 	int width, height;
 
 	readImage(pixels, width, height, "img.jpg");
-	writeImage(pixels, width, height, "img_original.txt");
 	
+	int numberOfGPUBlocks = (width * height + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-	unsigned char* smoothedPixels = new unsigned char[width * height];
-	for (int i = 0; i < width * height; ++i)
-		smoothedPixels[i] = smoothe(pixels, width, height, i % width, i / width);
+	unsigned char* gpuPixels;
+	CUDA_CHECK_RETURN(cudaMalloc((void**) &gpuPixels, width*height*sizeof(unsigned char)));
+	CUDA_CHECK_RETURN(cudaMemcpy(gpuPixels, pixels, width*height*sizeof(unsigned char), cudaMemcpyHostToDevice));
 
-	writeImage(smoothedPixels, width, height, "img_smoothed.txt");
+	unsigned char* gpuSmoothedPixels;
+	CUDA_CHECK_RETURN(cudaMalloc((void**)&gpuSmoothedPixels, width*height*sizeof(unsigned char)));
+	unsigned char* gpuEdgedPixels;
+	CUDA_CHECK_RETURN(cudaMalloc((void**)&gpuEdgedPixels, width*height*sizeof(unsigned char)));
 
+	runConvolutionGPU <<<numberOfGPUBlocks, THREADS_PER_BLOCK>>> (gpuPixels, gpuSmoothedPixels, width, height, &smoothe);
+	CUDA_CHECK_RETURN(cudaPeekAtLastError());
+	runConvolutionGPU <<<numberOfGPUBlocks, THREADS_PER_BLOCK >>> (gpuSmoothedPixels, gpuEdgedPixels, width, height, &findBorders);
+	CUDA_CHECK_RETURN(cudaPeekAtLastError());
+	
+	unsigned char* edgedPixels = new unsigned char[width*height];
+	CUDA_CHECK_RETURN(cudaMemcpy(edgedPixels, gpuEdgedPixels, width*height*sizeof(unsigned char), cudaMemcpyDeviceToHost));
 
-	unsigned char* edgedPixels = new unsigned char[width * height];
-	for (int i = 0; i < width * height; ++i)
-		edgedPixels[i] = findBorders(smoothedPixels, width, height, i % width, i / width);
+	writeImage(edgedPixels, width, height, "img.txt");
 
-	writeImage(edgedPixels, width, height, "img_edged.txt");
-
-
-	delete[] pixels;
-	delete[] smoothedPixels;
 	delete[] edgedPixels;
+	CUDA_CHECK_RETURN(cudaFree(gpuEdgedPixels));
+	CUDA_CHECK_RETURN(cudaFree(gpuSmoothedPixels));
+	CUDA_CHECK_RETURN(cudaFree(gpuPixels));
+	delete[] pixels;
 }
 
 /**
