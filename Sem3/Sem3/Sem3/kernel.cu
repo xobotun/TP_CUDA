@@ -2,8 +2,10 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <iostream>
+#include <fstream>
 #include <numeric>
 #include <stdlib.h>
+#include <corona.h>
 
 static void CheckCudaErrorAux(const char *, unsigned, const char *, cudaError_t);
 #define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__,__LINE__, #value, value)
@@ -68,9 +70,74 @@ __device__ __host__ unsigned char findBorders(unsigned char* pixels, int imgWidt
 	return result;
 }
 
+void readImage(unsigned char* &pixels, int &width, int &height, std::string filename) {
+	corona::Image* image = corona::OpenImage(filename.data(), corona::PF_R8G8B8);
+	if (!image) {
+		std::cerr << "Error while opening an image!" << std::endl;
+		system("pause");
+		exit(1);
+	}
+
+	width = image->getWidth();
+	height = image->getHeight();
+	void* coronaPixels = image->getPixels();
+
+	pixels = new unsigned char[width * height];
+
+	unsigned char* p = (unsigned char*)coronaPixels;
+	for (int i = 0; i < width * height; ++i)
+		pixels[i] = (*p++ + *p++ + *p++) / 3;
+}
+/*
+void writeImage(unsigned char* pixels, int width, int height, std::string filename) {
+
+	unsigned char* coronaPixels = new unsigned char[width * height * 3];
+	for (int i = 0; i < width * height; i+=3)
+		coronaPixels[i] = coronaPixels[i + 1] = coronaPixels[i + 2] = pixels[i / 3];
+
+
+	corona::Image* image = corona::CreateImage(width, height, corona::PF_R8G8B8, coronaPixels);
+	if (!image) {
+		std::cerr << "Error while creating an image!" << std::endl;
+		system("pause");
+		exit(1);
+	}
+
+	bool success = corona::SaveImage(filename.data(), corona::FileFormat::FF_AUTODETECT, image);
+	if (!success) {
+		std::cerr << "Error while writing an image to disk!" << std::endl;
+		system("pause");
+		exit(1);
+	}
+
+	delete image;
+	delete[] coronaPixels;
+}
+*/
+void writeImage(unsigned char* pixels, int width, int height, std::string filename) {
+	std::ofstream image;
+	image.open(filename);
+
+	for (int y = 0; y < height; ++y) {
+		for (int x = 0; x < width - 1; ++x)
+			image << (unsigned int)pixels[y*width + x] << ' ';
+		image << (unsigned int)pixels[y*width + width - 1] << std::endl;
+	}
+
+	image.close();
+}
 
 int main(void) {
-	
+	unsigned char* pixels;
+	int width, height;
+
+	readImage(pixels, width, height, "img.jpg");
+
+	// CUDA here.
+
+	writeImage(pixels, width, height, "img.txt");
+
+	delete[] pixels;
 }
 
 /**
