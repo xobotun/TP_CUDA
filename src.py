@@ -49,6 +49,7 @@ for image in filenames:
 
     cv2.namedWindow('circles', cv2.WINDOW_NORMAL);
     cv2.imshow('circles', img);
+    cv2.imwrite(IMAGE_PATH_ROOT+IMAGE_PATH_DETECTOR_OUT+image, img)
     cv2.resizeWindow('circles', 1024, 768);
 
     cv2.waitKey(0);
