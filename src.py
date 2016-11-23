@@ -3,8 +3,8 @@ import cv2;
 import os;
 
 IMAGE_PATH_ROOT = "E:\YandexDisk\Learning\TechnoPark\CUDA\TP_CUDA\photos\\"
-IMAGE_PATH_DETECTOR_IN = "detector\\"
-IMAGE_PATH_DETECTOR_OUT = "detector\out\\"
+IMAGE_PATH_DETECTOR_IN = "detector_new\\"
+IMAGE_PATH_DETECTOR_OUT = "detector_new\out\\"
 YELLOW_COIN_COLORS_BGR = [
     # 10 kops
     ([45, 65, 85], [45, 65, 85]),       #55412d
@@ -24,7 +24,7 @@ YELLOW_COIN_COLORS_BGR = [
     # 10 roubles
     ([28, 55, 74], [28, 55, 74]),       #4a371c
 ]
-YELLOW_COIN_COLOR_BOUNDARY = ([-10, -10, -15], [15, 15, 20])
+YELLOW_COIN_COLOR_BOUNDARY = ([-15, -15, -20], [30, 35, 20])
 SILVER_COIN_COLORS_BGR = [
     # 5 roubles
     ([69, 77, 86], [69, 77, 86]),       #564d45
@@ -33,8 +33,8 @@ SILVER_COIN_COLORS_BGR = [
         # enlightened
     ([124, 173, 202], [124, 173, 202]), #caad7c
     ([181, 155, 134], [181, 155, 134]), #869bb5
-    #([173, 150, 130], [173, 150, 130]), #8296ad
-    #([141, 126, 112], [141, 126, 112]), #707e8d
+    ([173, 150, 130], [173, 150, 130]), #8296ad
+    ([141, 126, 112], [141, 126, 112]), #707e8d
     # 1 rouble
     ([55, 63, 74], [55, 63, 74]),       #4a3f37
     # 2 roubles
@@ -44,7 +44,7 @@ SILVER_COIN_COLORS_BGR = [
     # 10 roubles
     ([82, 85, 86], [82, 85, 86]),       #565552
 ]
-SILVER_COIN_COLOR_BOUNDARY = ([-15, -15, -15], [15, 15, 15])
+SILVER_COIN_COLOR_BOUNDARY = ([-15, -15, -15], [30, 30, 30])
 
 def print_image(image):
     cv2.namedWindow('image', cv2.WINDOW_NORMAL)
@@ -87,8 +87,10 @@ def preprocess_image(image):
     masked = apply_masks(blurred)
     masked = cv2.cvtColor(masked, cv2.COLOR_BGR2GRAY)
     #thresholded = cv2.adaptiveThreshold(masked, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 1.7)
-    _,  thresholded = cv2.threshold(masked, 10, 255, cv2.THRESH_BINARY_INV )
-    blurred_again = cv2.GaussianBlur(thresholded, (37, 37), 0)
+    _,  thresholded = cv2.threshold(masked, 10, 255, cv2.THRESH_BINARY_INV)
+    _,  thresholded2 = cv2.threshold(masked, 120, 255, cv2.THRESH_BINARY)
+    thresholded3 = cv2.bitwise_xor(thresholded, thresholded2)
+    blurred_again = cv2.GaussianBlur(thresholded3, (13, 13), 0)
     return blurred_again
 """
     cv2.namedWindow('original', cv2.WINDOW_NORMAL);
@@ -109,7 +111,7 @@ def preprocess_image(image):
 """
 
 def get_circles(image):
-    circles = cv2.HoughCircles(image, cv2.cv.CV_HOUGH_GRADIENT, 2, 100, param1=100, param2=85, minRadius=25, maxRadius=150);
+    circles = cv2.HoughCircles(image, cv2.cv.CV_HOUGH_GRADIENT, 2, 120, param1=100, param2=75, minRadius=15, maxRadius=150);
     if circles != None:
         circles = numpy.uint16(numpy.around(circles))
     return circles
@@ -134,5 +136,5 @@ for image in filenames:
     cv2.imwrite(IMAGE_PATH_ROOT+IMAGE_PATH_DETECTOR_OUT+image, img)
     cv2.resizeWindow(image, 1024, 768);
 
-cv2.waitKey(0);
-cv2.destroyAllWindows();
+    #cv2.waitKey(0);
+    cv2.destroyAllWindows();
